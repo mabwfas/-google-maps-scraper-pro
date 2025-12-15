@@ -1,7 +1,7 @@
 'use client';
 
 import { SearchFilters, Country } from '@/types';
-import { getTopCitiesForCountry } from '@/data/countries';
+import { ScraperPlatform } from '@/data/scraperPlatforms';
 
 interface SidebarProps {
     isOpen: boolean;
@@ -14,6 +14,9 @@ interface SidebarProps {
     onPauseScraping: () => void;
     onStopScraping: () => void;
     isPaused: boolean;
+    platforms: ScraperPlatform[];
+    selectedPlatform: string;
+    onSelectPlatform: (id: string) => void;
 }
 
 export default function Sidebar({
@@ -26,10 +29,14 @@ export default function Sidebar({
     isScrapingActive,
     onPauseScraping,
     onStopScraping,
-    isPaused
+    isPaused,
+    platforms,
+    selectedPlatform,
+    onSelectPlatform
 }: SidebarProps) {
     const selectedCountry = countries.find(c => c.code === filters.country);
     const availableCities = selectedCountry?.topCities || [];
+    const currentPlatform = platforms.find(p => p.id === selectedPlatform);
 
     const handleCountryChange = (code: string) => {
         onFiltersChange({
@@ -62,6 +69,31 @@ export default function Sidebar({
     return (
         <aside className="sidebar">
             <div className="sidebar-content">
+                {/* Platform Selection */}
+                <div className="sidebar-section platform-section">
+                    <h3 className="section-title">
+                        <span className="section-icon">🔍</span>
+                        Data Source
+                    </h3>
+                    <div className="platform-grid">
+                        {platforms.map(platform => (
+                            <button
+                                key={platform.id}
+                                onClick={() => onSelectPlatform(platform.id)}
+                                className={`platform-btn ${selectedPlatform === platform.id ? 'selected' : ''}`}
+                                style={{ '--platform-color': platform.color } as React.CSSProperties}
+                                title={platform.description}
+                            >
+                                <span className="platform-icon">{platform.icon}</span>
+                                <span className="platform-name">{platform.name}</span>
+                            </button>
+                        ))}
+                    </div>
+                    {currentPlatform && (
+                        <p className="platform-desc">{currentPlatform.description}</p>
+                    )}
+                </div>
+
                 <div className="sidebar-section">
                     <h3 className="section-title">
                         <span className="section-icon">🌍</span>

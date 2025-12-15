@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { SearchFilters, ScrapedBusiness, ScrapingState } from '@/types';
 import { countries, getTopCitiesForCountry } from '@/data/countries';
 import { popularCategories } from '@/data/categories';
+import { scraperPlatforms } from '@/data/scraperPlatforms';
 import { generateMockBusinesses } from '@/lib/mockData';
 import { exportToCSV } from '@/lib/exportCSV';
 import { exportToPDF } from '@/lib/exportPDF';
@@ -38,10 +39,16 @@ export default function Home() {
   const [selectedBusiness, setSelectedBusiness] = useState<ScrapedBusiness | null>(null);
   const [isPitchModalOpen, setIsPitchModalOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [selectedPlatform, setSelectedPlatform] = useState('google_maps');
 
   const currentCountry = useMemo(() =>
     countries.find(c => c.code === filters.country),
     [filters.country]
+  );
+
+  const currentPlatform = useMemo(() =>
+    scraperPlatforms.find(p => p.id === selectedPlatform),
+    [selectedPlatform]
   );
 
   const handleStartScraping = useCallback(async () => {
@@ -171,6 +178,9 @@ export default function Home() {
           onPauseScraping={handlePauseScraping}
           onStopScraping={handleStopScraping}
           isPaused={scrapingState.isPaused}
+          platforms={scraperPlatforms}
+          selectedPlatform={selectedPlatform}
+          onSelectPlatform={setSelectedPlatform}
         />
 
         <main className="content-area">
