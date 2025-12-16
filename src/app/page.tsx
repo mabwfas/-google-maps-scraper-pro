@@ -5,7 +5,7 @@ import { SearchFilters, ScrapedBusiness, ScrapingState } from '@/types';
 import { countries, getTopCitiesForCountry } from '@/data/countries';
 import { popularCategories } from '@/data/categories';
 import { scraperPlatforms } from '@/data/scraperPlatforms';
-import { generateMockBusinesses } from '@/lib/mockData';
+import { generatePlatformData } from '@/lib/platformMockData';
 import { exportToCSV } from '@/lib/exportCSV';
 import { exportToPDF } from '@/lib/exportPDF';
 import Sidebar from '@/components/Sidebar';
@@ -72,36 +72,77 @@ export default function Home() {
 
     setBusinesses([]);
 
-    // Simulate progressive scraping
+    // Scrape data from API
     const totalResults = filters.resultsLimit;
-    const batchSize = 10;
-    const batches = Math.ceil(totalResults / batchSize);
+    const resultsPerCity = Math.ceil(totalResults / cities.length);
 
-    for (let i = 0; i < batches; i++) {
+    for (let cityIdx = 0; cityIdx < cities.length; cityIdx++) {
+      const city = cities[cityIdx];
+
       if (scrapingState.isPaused) {
         await new Promise(resolve => setTimeout(resolve, 100));
-        i--;
+        cityIdx--;
         continue;
       }
 
-      await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 200));
-
-      const currentBatch = Math.min(batchSize, totalResults - i * batchSize);
-      const cityIndex = Math.floor((i * batchSize) / (totalResults / cities.length));
-
-      const newBusinesses = generateMockBusinesses(
-        [cities[cityIndex % cities.length]],
-        filters.category,
-        currentCountry?.name || 'United States',
-        currentBatch
-      );
-
-      setBusinesses(prev => [...prev, ...newBusinesses]);
       setScrapingState(prev => ({
         ...prev,
-        progress: Math.min((i + 1) * batchSize, totalResults),
-        currentCity: cities[cityIndex % cities.length],
-        estimatedTimeRemaining: Math.max(0, Math.ceil((batches - i - 1) * 0.5) * 60)
+        currentCity: city,
+        progress: Math.floor((cityIdx / cities.length) * totalResults)
+      }));
+
+      try {
+        // Call API route for real scraping
+        const response = await fetch('/api/scrape', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            platform: selectedPlatform,
+            query: filters.category,
+            city: city,
+            country: currentCountry?.name || 'United States',
+            // API key would be stored in environment variables for production
+            apiKey: process.env.NEXT_PUBLIC_GOOGLE_PLACES_API_KEY
+          })
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.data) {
+          // Enrich with AI scoring
+          const enrichedBusinesses = result.data.slice(0, resultsPerCity).map((biz: any) => {
+            const { calculateOpportunityScore } = require('@/lib/scoring');
+            const { generateSuggestionTags } = require('@/lib/suggestions');
+            const { generatePitchIdeas } = require('@/lib/pitchGenerator');
+
+            return {
+              ...biz,
+              opportunityScore: calculateOpportunityScore(biz),
+              suggestionTags: generateSuggestionTags(biz),
+              pitchIdeas: generatePitchIdeas(biz)
+            };
+          });
+
+          setBusinesses(prev => [...prev, ...enrichedBusinesses]);
+        }
+      } catch (error) {
+        console.error('Scraping error for', city, error);
+        // Fallback to mock data on error
+        const fallbackData = generatePlatformData(
+          selectedPlatform,
+          [city],
+          filters.category,
+          currentCountry?.name || 'United States',
+          resultsPerCity
+        );
+        setBusinesses(prev => [...prev, ...fallbackData]);
+      }
+
+      // Update progress
+      setScrapingState(prev => ({
+        ...prev,
+        progress: Math.min((cityIdx + 1) * resultsPerCity, totalResults),
+        estimatedTimeRemaining: Math.max(0, (cities.length - cityIdx - 1) * 30)
       }));
     }
 
@@ -111,7 +152,7 @@ export default function Home() {
       progress: totalResults,
       estimatedTimeRemaining: 0
     }));
-  }, [filters, currentCountry, scrapingState.isPaused]);
+  }, [filters, currentCountry, scrapingState.isPaused, selectedPlatform]);
 
   const handlePauseScraping = useCallback(() => {
     setScrapingState(prev => ({ ...prev, isPaused: !prev.isPaused }));
