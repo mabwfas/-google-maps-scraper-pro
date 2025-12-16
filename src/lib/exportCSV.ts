@@ -1,9 +1,18 @@
 // CSV Export Utility
+// Enhanced for Multi-Platform Business Intelligence Scraper V2.0
 
-import { ScrapedBusiness } from '@/types';
+import { ScrapedBusiness, UnifiedBusiness } from '@/types';
+
+// Type guard to check if business is UnifiedBusiness
+function isUnifiedBusiness(business: ScrapedBusiness): business is UnifiedBusiness {
+    return 'platformsFound' in business && 'aggregatedRating' in business;
+}
 
 export function exportToCSV(businesses: ScrapedBusiness[], filename?: string): void {
-    const headers = [
+    // Check if we have multi-platform data
+    const isMultiPlatform = businesses.length > 0 && isUnifiedBusiness(businesses[0]);
+
+    const baseHeaders = [
         'Business Name',
         'Category',
         'Address',
@@ -27,29 +36,67 @@ export function exportToCSV(businesses: ScrapedBusiness[], filename?: string): v
         'Longitude'
     ];
 
-    const rows = businesses.map(biz => [
-        escapeCSV(biz.businessName),
-        escapeCSV(biz.category),
-        escapeCSV(biz.address),
-        escapeCSV(biz.city),
-        escapeCSV(biz.state),
-        escapeCSV(biz.country),
-        escapeCSV(biz.zipCode),
-        escapeCSV(biz.phone || ''),
-        escapeCSV(biz.website || ''),
-        escapeCSV(biz.mapsUrl),
-        String(biz.rating),
-        String(biz.totalReviews),
-        escapeCSV(biz.priceRange || ''),
-        escapeCSV(biz.businessStatus),
-        String(biz.opportunityScore),
-        getOpportunityLevel(biz.opportunityScore),
-        escapeCSV(biz.suggestionTags.map(t => t.label).join('; ')),
-        escapeCSV(biz.pitchIdeas[0]?.service || ''),
-        escapeCSV(biz.pitchIdeas[0]?.price || ''),
-        String(biz.coordinates.lat),
-        String(biz.coordinates.lng)
-    ]);
+    // Additional headers for multi-platform data
+    const multiPlatformHeaders = [
+        'Platform Count',
+        'Platforms Found',
+        'Missing Platforms',
+        'Aggregated Rating',
+        'Total Reviews All Platforms',
+        'Facebook Followers',
+        'Data Quality %',
+        'Match Confidence %',
+        'Has Conflicts',
+        'Insights Count'
+    ];
+
+    const headers = isMultiPlatform
+        ? [...baseHeaders, ...multiPlatformHeaders]
+        : baseHeaders;
+
+    const rows = businesses.map(biz => {
+        const baseRow = [
+            escapeCSV(biz.businessName),
+            escapeCSV(biz.category),
+            escapeCSV(biz.address),
+            escapeCSV(biz.city),
+            escapeCSV(biz.state),
+            escapeCSV(biz.country),
+            escapeCSV(biz.zipCode),
+            escapeCSV(biz.phone || ''),
+            escapeCSV(biz.website || ''),
+            escapeCSV(biz.mapsUrl),
+            String(biz.rating),
+            String(biz.totalReviews),
+            escapeCSV(biz.priceRange || ''),
+            escapeCSV(biz.businessStatus),
+            String(biz.opportunityScore),
+            getOpportunityLevel(biz.opportunityScore),
+            escapeCSV(biz.suggestionTags.map(t => t.label).join('; ')),
+            escapeCSV(biz.pitchIdeas[0]?.service || ''),
+            escapeCSV(biz.pitchIdeas[0]?.price || ''),
+            String(biz.coordinates.lat),
+            String(biz.coordinates.lng)
+        ];
+
+        if (isMultiPlatform && isUnifiedBusiness(biz)) {
+            const multiPlatformRow = [
+                String(biz.platformCount),
+                escapeCSV(biz.platformsFound.join('; ')),
+                escapeCSV(biz.platformGaps.join('; ')),
+                String(biz.aggregatedRating.toFixed(2)),
+                String(biz.totalReviewsAllPlatforms),
+                String(biz.platforms.facebook?.followers || 0),
+                String(biz.dataQuality),
+                String(biz.matchConfidence),
+                biz.conflicts.length > 0 ? 'Yes' : 'No',
+                String(biz.crossPlatformInsights.length)
+            ];
+            return [...baseRow, ...multiPlatformRow];
+        }
+
+        return baseRow;
+    });
 
     const csvContent = [
         headers.join(','),
@@ -61,8 +108,9 @@ export function exportToCSV(businesses: ScrapedBusiness[], filename?: string): v
     const link = document.createElement('a');
 
     const date = new Date().toISOString().split('T')[0];
+    const platformSuffix = isMultiPlatform ? 'multi-platform' : 'google-maps';
     link.href = url;
-    link.download = filename || `google-maps-scraper-${date}.csv`;
+    link.download = filename || `${platformSuffix}-scraper-${date}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -82,3 +130,4 @@ function getOpportunityLevel(score: number): string {
     if (score >= 40) return 'Decent Prospect';
     return 'Low Priority';
 }
+

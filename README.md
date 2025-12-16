@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lead Scraper Pro v2.0
 
-## Getting Started
+A **Multi-Platform Business Intelligence Scraper** that extracts real business data from Google Maps, Yelp, Yellow Pages, and Facebook. Features AI-powered opportunity scoring, deduplication across platforms, and pitch generation.
 
-First, run the development server:
+## 🚀 Features
+
+- **Real Web Scraping**: Uses Playwright to scrape actual business data (not mock data)
+- **Multi-Platform Support**: Google Maps, Yelp, Yellow Pages, Facebook
+- **AI Opportunity Scoring**: Identifies hot leads based on business characteristics
+- **Cross-Platform Deduplication**: Merges data from multiple sources
+- **Pitch Generation**: Auto-generates sales pitches based on business gaps
+- **Export**: CSV and PDF reports with platform comparison
+
+## 📦 Installation
+
+```bash
+npm install
+npx playwright install chromium
+```
+
+## 🏃 Running
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🔧 How It Works
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Select platforms (Google Maps, Yelp, etc.)
+2. Enter search query and location
+3. Click "Scrape" - launches headless browser to scrape real data
+4. View results with opportunity scores
+5. Export to CSV/PDF
 
-## Learn More
+## ⚠️ Important Notes
 
-To learn more about Next.js, take a look at the following resources:
+- **First scrape is slower** (~5-10 seconds per platform - browser launch time)
+- **Rate limiting**: Sites may block if you scrape too fast
+- **Best results**: Google Maps and Yellow Pages work most reliably
+- **Facebook**: Limited due to login requirements
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 📁 Key Files
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `src/lib/realScraper.ts` - Web scraping logic (Playwright)
+- `src/lib/unifiedBusiness.ts` - Deduplication & merging
+- `src/app/api/scrape/route.ts` - API endpoint
+- `src/components/` - UI components
 
-## Deploy on Vercel
+## License
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
