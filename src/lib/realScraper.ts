@@ -1,6 +1,7 @@
 // Robust Real Web Scraping Library using Playwright
 // Scrapes actual data from Google Maps, Yelp, Facebook, and Yellow Pages
 // With retry logic, fallback selectors, and comprehensive error handling
+// Supports both local Playwright and Browserless.io for Vercel deployment
 
 import { chromium, Browser, BrowserContext, Page, Locator } from 'playwright';
 
@@ -27,22 +28,47 @@ const USER_AGENTS = [
 // Singleton browser instance for reuse
 let browserInstance: Browser | null = null;
 
+// Check if running on Vercel (serverless)
+const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
+
+// Browserless.io API key (set in Vercel environment variables)
+const BROWSERLESS_API_KEY = process.env.BROWSERLESS_API_KEY;
+
 async function getBrowser(): Promise<Browser> {
     if (!browserInstance || !browserInstance.isConnected()) {
-        console.log('🚀 Launching browser...');
-        browserInstance = await chromium.launch({
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--disable-gpu',
-                '--window-size=1920,1080',
-                '--disable-blink-features=AutomationControlled',
-            ]
-        });
-        console.log('✅ Browser launched successfully');
+
+        // Option 1: Use Browserless.io for cloud/Vercel deployment
+        if (BROWSERLESS_API_KEY) {
+            console.log('🌐 Connecting to Browserless.io cloud browser...');
+            const browserWSEndpoint = `wss://chrome.browserless.io?token=${BROWSERLESS_API_KEY}`;
+            browserInstance = await chromium.connectOverCDP(browserWSEndpoint);
+            console.log('✅ Connected to Browserless.io');
+        }
+        // Option 2: Use local Playwright for development
+        else if (!isServerless) {
+            console.log('🚀 Launching local browser...');
+            browserInstance = await chromium.launch({
+                headless: true,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--disable-gpu',
+                    '--window-size=1920,1080',
+                    '--disable-blink-features=AutomationControlled',
+                ]
+            });
+            console.log('✅ Local browser launched');
+        }
+        // Option 3: Serverless without Browserless - throw error
+        else {
+            throw new Error(
+                'Cannot run Playwright on serverless without Browserless.io. ' +
+                'Please set BROWSERLESS_API_KEY environment variable. ' +
+                'Get a free API key at https://www.browserless.io/'
+            );
+        }
     }
     return browserInstance;
 }
