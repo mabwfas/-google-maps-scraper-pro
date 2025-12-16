@@ -4,18 +4,19 @@ import { useState, useCallback, useMemo } from 'react';
 import { SearchFilters, ScrapedBusiness, ScrapingState } from '@/types';
 import { countries, getTopCitiesForCountry } from '@/data/countries';
 import { popularCategories } from '@/data/categories';
-import { scraperPlatforms } from '@/data/scraperPlatforms';
-import { generatePlatformData } from '@/lib/platformMockData';
+import { scraperPlatforms, ScraperPlatform } from '@/data/scraperPlatforms';
 import { exportToCSV } from '@/lib/exportCSV';
 import { exportToPDF } from '@/lib/exportPDF';
-import Sidebar from '@/components/Sidebar';
+import { calculateOpportunityScore } from '@/lib/scoring';
+import { generateSuggestionTags } from '@/lib/suggestions';
+import { generatePitchIdeas } from '@/lib/pitchGenerator';
 import DataTable from '@/components/DataTable';
 import PitchModal from '@/components/PitchModal';
-import Header from '@/components/Header';
 import StatsBar from '@/components/StatsBar';
 import ProgressBar from '@/components/ProgressBar';
 
 export default function Home() {
+  const [selectedPlatformId, setSelectedPlatformId] = useState('google_maps');
   const [filters, setFilters] = useState<SearchFilters>({
     country: 'US',
     cityMode: 'top10',
@@ -38,18 +39,24 @@ export default function Home() {
 
   const [selectedBusiness, setSelectedBusiness] = useState<ScrapedBusiness | null>(null);
   const [isPitchModalOpen, setIsPitchModalOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [selectedPlatform, setSelectedPlatform] = useState('google_maps');
+
+  const platform = useMemo(() =>
+    scraperPlatforms.find(p => p.id === selectedPlatformId) || scraperPlatforms[0],
+    [selectedPlatformId]
+  );
 
   const currentCountry = useMemo(() =>
     countries.find(c => c.code === filters.country),
     [filters.country]
   );
 
-  const currentPlatform = useMemo(() =>
-    scraperPlatforms.find(p => p.id === selectedPlatform),
-    [selectedPlatform]
-  );
+  const selectedCountry = countries.find(c => c.code === filters.country);
+  const availableCities = selectedCountry?.topCities || [];
+
+  const handlePlatformChange = (platformId: string) => {
+    setSelectedPlatformId(platformId);
+    setBusinesses([]); // Clear results when switching platforms
+  };
 
   const handleStartScraping = useCallback(async () => {
     const cities = filters.selectedCities.length > 0
@@ -72,18 +79,11 @@ export default function Home() {
 
     setBusinesses([]);
 
-    // Scrape data from API
     const totalResults = filters.resultsLimit;
     const resultsPerCity = Math.ceil(totalResults / cities.length);
 
     for (let cityIdx = 0; cityIdx < cities.length; cityIdx++) {
       const city = cities[cityIdx];
-
-      if (scrapingState.isPaused) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        cityIdx--;
-        continue;
-      }
 
       setScrapingState(prev => ({
         ...prev,
@@ -92,53 +92,33 @@ export default function Home() {
       }));
 
       try {
-        // Call API route for real scraping
         const response = await fetch('/api/scrape', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            platform: selectedPlatform,
+            platform: platform.id,
             query: filters.category,
             city: city,
-            country: currentCountry?.name || 'United States',
-            // API key would be stored in environment variables for production
-            apiKey: process.env.NEXT_PUBLIC_GOOGLE_PLACES_API_KEY
+            country: currentCountry?.name || 'United States'
           })
         });
 
         const result = await response.json();
 
         if (result.success && result.data) {
-          // Enrich with AI scoring
-          const enrichedBusinesses = result.data.slice(0, resultsPerCity).map((biz: any) => {
-            const { calculateOpportunityScore } = require('@/lib/scoring');
-            const { generateSuggestionTags } = require('@/lib/suggestions');
-            const { generatePitchIdeas } = require('@/lib/pitchGenerator');
-
-            return {
-              ...biz,
-              opportunityScore: calculateOpportunityScore(biz),
-              suggestionTags: generateSuggestionTags(biz),
-              pitchIdeas: generatePitchIdeas(biz)
-            };
-          });
+          const enrichedBusinesses = result.data.slice(0, resultsPerCity).map((biz: any) => ({
+            ...biz,
+            opportunityScore: calculateOpportunityScore(biz),
+            suggestionTags: generateSuggestionTags(biz),
+            pitchIdeas: generatePitchIdeas(biz)
+          }));
 
           setBusinesses(prev => [...prev, ...enrichedBusinesses]);
         }
       } catch (error) {
         console.error('Scraping error for', city, error);
-        // Fallback to mock data on error
-        const fallbackData = generatePlatformData(
-          selectedPlatform,
-          [city],
-          filters.category,
-          currentCountry?.name || 'United States',
-          resultsPerCity
-        );
-        setBusinesses(prev => [...prev, ...fallbackData]);
       }
 
-      // Update progress
       setScrapingState(prev => ({
         ...prev,
         progress: Math.min((cityIdx + 1) * resultsPerCity, totalResults),
@@ -152,27 +132,7 @@ export default function Home() {
       progress: totalResults,
       estimatedTimeRemaining: 0
     }));
-  }, [filters, currentCountry, scrapingState.isPaused, selectedPlatform]);
-
-  const handlePauseScraping = useCallback(() => {
-    setScrapingState(prev => ({ ...prev, isPaused: !prev.isPaused }));
-  }, []);
-
-  const handleStopScraping = useCallback(() => {
-    setScrapingState({
-      isActive: false,
-      isPaused: false,
-      progress: 0,
-      total: 0,
-      currentCity: '',
-      estimatedTimeRemaining: 0
-    });
-  }, []);
-
-  const handleViewPitch = useCallback((business: ScrapedBusiness) => {
-    setSelectedBusiness(business);
-    setIsPitchModalOpen(true);
-  }, []);
+  }, [filters, currentCountry, platform.id]);
 
   const handleExportCSV = useCallback(() => {
     if (businesses.length === 0) {
@@ -199,32 +159,163 @@ export default function Home() {
   }, [businesses, filters, currentCountry]);
 
   return (
-    <div className="app-container">
-      <Header
-        onExportCSV={handleExportCSV}
-        onExportPDF={handleExportPDF}
-        hasData={businesses.length > 0}
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-      />
+    <div className="dashboard-container">
+      {/* Header with Platform Dropdown */}
+      <header className="dashboard-header" style={{ '--platform-color': platform.color } as React.CSSProperties}>
+        <div className="header-left">
+          <div className="logo-section">
+            <span className="logo-icon">🔍</span>
+            <span className="logo-text">Lead Scraper Pro</span>
+          </div>
 
-      <div className="main-layout">
-        <Sidebar
-          isOpen={sidebarOpen}
-          filters={filters}
-          onFiltersChange={setFilters}
-          countries={countries}
-          categories={popularCategories}
-          onStartScraping={handleStartScraping}
-          isScrapingActive={scrapingState.isActive}
-          onPauseScraping={handlePauseScraping}
-          onStopScraping={handleStopScraping}
-          isPaused={scrapingState.isPaused}
-          platforms={scraperPlatforms}
-          selectedPlatform={selectedPlatform}
-          onSelectPlatform={setSelectedPlatform}
-        />
+          {/* Platform Dropdown Switcher */}
+          <div className="platform-switcher">
+            <select
+              value={selectedPlatformId}
+              onChange={(e) => handlePlatformChange(e.target.value)}
+              className="platform-dropdown"
+              style={{ borderColor: platform.color }}
+            >
+              {scraperPlatforms.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.icon} {p.name}
+                </option>
+              ))}
+            </select>
+            <span className="platform-badge" style={{ backgroundColor: platform.color }}>
+              {platform.icon} {platform.name}
+            </span>
+          </div>
+        </div>
 
-        <main className="content-area">
+        <div className="header-right">
+          <button onClick={handleExportCSV} disabled={businesses.length === 0} className="btn-export csv">
+            📥 CSV
+          </button>
+          <button onClick={handleExportPDF} disabled={businesses.length === 0} className="btn-export pdf">
+            📄 PDF
+          </button>
+        </div>
+      </header>
+
+      <div className="dashboard-layout">
+        {/* Sidebar */}
+        <aside className="dashboard-sidebar">
+          <div className="sidebar-section">
+            <h3>🌍 Country</h3>
+            <select
+              value={filters.country}
+              onChange={(e) => setFilters({ ...filters, country: e.target.value, selectedCities: [] })}
+              className="select-input"
+            >
+              {countries.map(c => (
+                <option key={c.code} value={c.code}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="sidebar-section">
+            <h3>📍 Cities</h3>
+            <div className="radio-group">
+              {(['top10', 'top25', 'top50', 'custom'] as const).map(mode => (
+                <label key={mode} className="radio-label">
+                  <input
+                    type="radio"
+                    checked={filters.cityMode === mode}
+                    onChange={() => setFilters({ ...filters, cityMode: mode, selectedCities: mode === 'custom' ? filters.selectedCities : [] })}
+                  />
+                  {mode === 'custom' ? 'Custom' : `Top ${mode.replace('top', '')}`}
+                </label>
+              ))}
+            </div>
+            {filters.cityMode === 'custom' && (
+              <div className="city-chips">
+                {availableCities.slice(0, 20).map(city => (
+                  <button
+                    key={city}
+                    onClick={() => {
+                      const isSelected = filters.selectedCities.includes(city);
+                      setFilters({
+                        ...filters,
+                        selectedCities: isSelected
+                          ? filters.selectedCities.filter(c => c !== city)
+                          : [...filters.selectedCities, city].slice(0, 10)
+                      });
+                    }}
+                    className={`city-chip ${filters.selectedCities.includes(city) ? 'selected' : ''}`}
+                  >
+                    {city}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="sidebar-section">
+            <h3>🔍 Search Query</h3>
+            <input
+              type="text"
+              value={filters.category}
+              onChange={(e) => setFilters({ ...filters, category: e.target.value })}
+              placeholder={`e.g., ${platform.dataPoints[0] || 'Restaurant'}...`}
+              className="text-input"
+              list="categories"
+            />
+            <datalist id="categories">
+              {popularCategories.map(cat => <option key={cat} value={cat} />)}
+            </datalist>
+            <div className="quick-categories">
+              {popularCategories.slice(0, 4).map(cat => (
+                <button key={cat} onClick={() => setFilters({ ...filters, category: cat })} className="quick-cat-btn">
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="sidebar-section">
+            <h3>⚙️ Options</h3>
+            <div className="filter-row">
+              <label>Results Limit</label>
+              <select
+                value={filters.resultsLimit}
+                onChange={(e) => setFilters({ ...filters, resultsLimit: Number(e.target.value) })}
+                className="select-input small"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="sidebar-actions">
+            <button
+              onClick={handleStartScraping}
+              disabled={!filters.category || scrapingState.isActive}
+              className="btn-start"
+              style={{ backgroundColor: platform.color }}
+            >
+              {scrapingState.isActive ? '⏳ Scraping...' : `🚀 Start ${platform.name} Scrape`}
+            </button>
+          </div>
+
+          {/* Platform Info */}
+          <div className="platform-info-box" style={{ borderColor: platform.color }}>
+            <h4>{platform.icon} {platform.name}</h4>
+            <p>{platform.description}</p>
+            <div className="data-points-list">
+              <strong>Data Extracted:</strong>
+              {platform.dataPoints.map((point, idx) => (
+                <span key={idx} className="data-point">{point}</span>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="dashboard-main">
           {scrapingState.isActive && (
             <ProgressBar
               progress={scrapingState.progress}
@@ -235,23 +326,18 @@ export default function Home() {
             />
           )}
 
-          {businesses.length > 0 && (
-            <StatsBar businesses={businesses} />
-          )}
+          {businesses.length > 0 && <StatsBar businesses={businesses} />}
 
           <DataTable
             businesses={businesses}
-            onViewPitch={handleViewPitch}
+            onViewPitch={(biz) => { setSelectedBusiness(biz); setIsPitchModalOpen(true); }}
             isLoading={scrapingState.isActive}
           />
         </main>
       </div>
 
       {isPitchModalOpen && selectedBusiness && (
-        <PitchModal
-          business={selectedBusiness}
-          onClose={() => setIsPitchModalOpen(false)}
-        />
+        <PitchModal business={selectedBusiness} onClose={() => setIsPitchModalOpen(false)} />
       )}
     </div>
   );
