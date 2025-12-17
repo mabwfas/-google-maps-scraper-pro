@@ -864,8 +864,31 @@ export async function scrapeRealData(
             case 'facebook':
                 results = await scrapeFacebookReal(query, city, limit);
                 break;
+            case 'linkedin':
+                // LinkedIn requires login - return message
+                console.log('⚠️ LinkedIn requires authentication - returning empty results');
+                console.log('💡 Tip: Use LinkedIn official API or Sales Navigator for company data');
+                results = [];
+                break;
+            case 'tripadvisor':
+                // TripAdvisor is heavily protected - return message
+                console.log('⚠️ TripAdvisor has strong anti-scraping measures');
+                console.log('💡 Tip: Consider using TripAdvisor Content API');
+                results = [];
+                break;
+            case 'instagram':
+                // Instagram requires login
+                console.log('⚠️ Instagram requires authentication - returning empty results');
+                results = [];
+                break;
+            case 'indeed':
+                // Indeed for job listings
+                console.log('⚠️ Indeed requires authentication - returning empty results');
+                results = [];
+                break;
             default:
                 console.log(`⚠️ Platform "${platform}" not supported for real scraping`);
+                console.log(`📋 Supported platforms: google_maps, yelp, yellow_pages, facebook`);
                 return [];
         }
     } catch (error) {
@@ -877,3 +900,4 @@ export async function scrapeRealData(
 
     return results;
 }
+

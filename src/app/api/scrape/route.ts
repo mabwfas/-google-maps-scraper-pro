@@ -4,43 +4,139 @@ import { scrapeRealData, closeBrowser } from '@/lib/realScraper';
 // Real web scraping API endpoint using Playwright
 // Scrapes actual business data from Google Maps, Yelp, Yellow Pages, Facebook
 
-export async function POST(request: NextRequest) {
-    try {
-        const body = await request.json();
-        const { platform, query, city, country } = body;
+// Supported platforms
+const SUPPORTED_PLATFORMS = ['google_maps', 'yelp', 'yellow_pages', 'facebook'];
 
-        if (!query || !city) {
-            return NextResponse.json({ error: 'Missing query or city' }, { status: 400 });
+// Request timeout (5 minutes for scraping)
+const REQUEST_TIMEOUT = 300000;
+
+// GET - Health check and status
+export async function GET() {
+    return NextResponse.json({
+        status: 'ok',
+        message: 'Lead Scraper Pro API v2.0',
+        supportedPlatforms: SUPPORTED_PLATFORMS,
+        endpoints: {
+            'POST /api/scrape': 'Scrape business data from platforms',
+            'DELETE /api/scrape': 'Close browser instance'
+        }
+    });
+}
+
+// POST - Scrape data from platforms
+export async function POST(request: NextRequest) {
+    const startTime = Date.now();
+
+    try {
+        // Parse request body
+        let body;
+        try {
+            body = await request.json();
+        } catch {
+            return NextResponse.json({
+                error: 'Invalid JSON body'
+            }, { status: 400 });
         }
 
-        console.log(`📡 API Request: Scraping ${platform} for "${query}" in ${city}, ${country}`);
+        const { platform, query, city, country, limit = 20 } = body;
 
-        // Use real scraping
-        const results = await scrapeRealData(platform, query, city, country, 20);
+        // Validate required fields
+        if (!platform) {
+            return NextResponse.json({
+                error: 'Missing required field: platform',
+                supportedPlatforms: SUPPORTED_PLATFORMS
+            }, { status: 400 });
+        }
 
-        console.log(`✅ Scraped ${results.length} real businesses from ${platform}`);
+        if (!query) {
+            return NextResponse.json({
+                error: 'Missing required field: query (business category)'
+            }, { status: 400 });
+        }
+
+        if (!city) {
+            return NextResponse.json({
+                error: 'Missing required field: city'
+            }, { status: 400 });
+        }
+
+        // Validate platform
+        if (!SUPPORTED_PLATFORMS.includes(platform)) {
+            return NextResponse.json({
+                error: `Unsupported platform: ${platform}`,
+                supportedPlatforms: SUPPORTED_PLATFORMS
+            }, { status: 400 });
+        }
+
+        // Validate limit
+        const parsedLimit = Math.min(Math.max(1, parseInt(limit) || 20), 50);
+
+        console.log(`\n📡 API Request:
+   Platform: ${platform}
+   Query: "${query}"
+   City: ${city}, ${country || 'US'}
+   Limit: ${parsedLimit}
+`);
+
+        // Use real scraping with timeout
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Scraping timeout exceeded')), REQUEST_TIMEOUT);
+        });
+
+        const results = await Promise.race([
+            scrapeRealData(platform, query, city, country || 'United States', parsedLimit),
+            timeoutPromise
+        ]);
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`✅ Scraped ${results.length} businesses in ${duration}s`);
 
         return NextResponse.json({
             success: true,
             data: results,
-            message: `Scraped ${results.length} real businesses from ${platform}`
+            meta: {
+                platform,
+                query,
+                city,
+                country: country || 'United States',
+                count: results.length,
+                duration: `${duration}s`
+            }
+        });
+
+    } catch (error) {
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+        console.error(`❌ Scraping failed after ${duration}s:`, errorMessage);
+
+        // Return appropriate status code
+        const status = errorMessage.includes('timeout') ? 504 : 500;
+
+        return NextResponse.json({
+            success: false,
+            error: 'Failed to scrape data',
+            details: errorMessage,
+            duration: `${duration}s`
+        }, { status });
+    }
+}
+
+// DELETE - Clean up browser instance
+export async function DELETE() {
+    try {
+        await closeBrowser();
+        return NextResponse.json({
+            success: true,
+            message: 'Browser instance closed successfully'
         });
     } catch (error) {
-        console.error('Scraping error:', error);
         return NextResponse.json({
-            error: 'Failed to scrape data',
+            success: false,
+            error: 'Failed to close browser',
             details: error instanceof Error ? error.message : 'Unknown error'
         }, { status: 500 });
     }
 }
 
-// Clean up browser on server shutdown
-export async function DELETE() {
-    try {
-        await closeBrowser();
-        return NextResponse.json({ success: true, message: 'Browser closed' });
-    } catch (error) {
-        return NextResponse.json({ error: 'Failed to close browser' }, { status: 500 });
-    }
-}
 
